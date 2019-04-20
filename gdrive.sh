@@ -1,7 +1,7 @@
 if [ "$1" == "" ] || [ $# -gt 1 ]; then
         echo "Please prodivide the file id for download"
         exit 0
-
+fi
 
 ggID="$1"
 ggURL='https://drive.google.com/uc?export=download'  
