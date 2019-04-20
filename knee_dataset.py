@@ -34,7 +34,7 @@ import numpy as np
 import imgaug  # https://github.com/aleju/imgaug (pip3 install imgaug)
 import glob
 import h5py
-
+import skimage.color
 # import zipfile
 # import urllib.request
 # import shutil
@@ -53,6 +53,14 @@ DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
 #  Configurations
 ############################################################
 
+def to_rgb1a(im):
+    # This should be fsater than 1, as we only
+    # truncate to uint8 once (?)
+    w, h = im.shape
+    ret = np.empty((w, h, 3), dtype=np.uint8)
+    ret[:, :, 2] =  ret[:, :, 1] =  ret[:, :, 0] =  im
+    return ret
+
 
 class KneeConfig(Config):
     """Configuration for training on MS Knee.
@@ -62,16 +70,18 @@ class KneeConfig(Config):
     # Give the configuration a recognizable name
     NAME = "knee"
 
-    # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 2
-
-    # Uncomment to train on 8 GPUs (default is 1)
-    # GPU_COUNT = 8
+    IMAGES_PER_GPU = 4
+    GPU_COUNT = 1
 
     # Number of classes (including background)
 
     NUM_CLASSES = 1 + 6
+    IMAGE_MIN_DIM = 384
+    IMAGE_MAX_DIM = 384
+    
+    # IMAGE_RESIZE_MODE=None
+    DEVICE = "/cpu:0" 
 
 
 ############################################################
@@ -87,7 +97,7 @@ class KneeDataset(utils.Dataset):
             class_ids = list(range(len(class_names)))
 
         for class_id in class_ids:
-            self.add_class("shapes", class_id, class_names[class_id])
+            self.add_class("knee", class_id, class_names[class_id])
 
         assert subset in ['train', 'minitrain', 'valid', 'minivalid']
         
@@ -101,8 +111,8 @@ class KneeDataset(utils.Dataset):
                 img_paths = img_paths[2*10:]
         else:
             dataset_dir = os.path.join(dataset_dir, subset)
-            img_paths = [f for f in glob.glob(path + "/*.im")]
-
+            print(dataset_dir)
+            img_paths = [f for f in glob.glob(dataset_dir + "/*.im")]
 
         for img_path in img_paths:
             base_id =  os.path.splitext(os.path.basename(img_path))[0]
@@ -111,6 +121,7 @@ class KneeDataset(utils.Dataset):
                 img = np.array(hf['data'])
             n_imgs = img.shape[-1]
             w, h = img.shape[:2]
+
             for i in range(n_imgs):
                 img_id = base_id + '_im' + str(i)
                 self.add_image(
@@ -119,6 +130,7 @@ class KneeDataset(utils.Dataset):
                     path=img_path,
                     width=w, height=h,
                     slice=i)
+
             
     def load_image(self, image_id):
         """Generate an image from the specs of the given image ID.
@@ -134,6 +146,15 @@ class KneeDataset(utils.Dataset):
                 image = np.array(hf['data'])
 
         image = image[:,:,sl]
+        im_min = np.min(image)
+        im_max = np.max(image)
+        image = (image - im_min) / (im_max - im_min)
+        image = (image * 255).astype(np.uint8)
+        print(np.max(image))
+        print(np.min(image))
+        # Mask RCNN bugs with Grayscale images
+        if image.ndim != 3:
+            image = skimage.color.gray2rgb(image)
         return image
 
 
